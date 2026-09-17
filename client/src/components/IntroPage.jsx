@@ -38,6 +38,110 @@ function MiniPhone({ children, title }) {
   );
 }
 
+function SignalMap() {
+  const [issues, setIssues] = useState([]);
+  const [location, setLocation] = useState(null);
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerLayerRef = useRef(null);
+
+  const refreshMap = useCallback(async () => {
+    const storedIssues = await listIssues();
+    setIssues(storedIssues.filter((issue) => Number.isFinite(issue.lat) && Number.isFinite(issue.lng)));
+  }, []);
+
+  useEffect(() => {
+    refreshMap();
+    const handleChange = () => refreshMap();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshMap();
+    };
+    window.addEventListener("groundtruth:issues-changed", handleChange);
+    document.addEventListener("visibilitychange", handleVisibility);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => setLocation({ lat: coords.latitude, lng: coords.longitude }),
+        () => {},
+        { timeout: 5000 }
+      );
+    }
+    return () => {
+      window.removeEventListener("groundtruth:issues-changed", handleChange);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshMap]);
+
+  const points = useMemo(
+    () => issues.length ? issues : location ? [{ lat: location.lat, lng: location.lng, status: "current" }] : [],
+    [issues, location]
+  );
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+    let cancelled = false;
+    import("leaflet").then(({ default: L }) => {
+      if (cancelled || !mapRef.current) return;
+      const map = L.map(mapRef.current, { zoomControl: false, attributionControl: true });
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+      markerLayerRef.current = L.layerGroup().addTo(map);
+      mapInstanceRef.current = map;
+      map.invalidateSize();
+    });
+    return () => {
+      cancelled = true;
+      mapInstanceRef.current?.remove();
+      mapInstanceRef.current = null;
+      markerLayerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    import("leaflet").then(({ default: L }) => {
+      const map = mapInstanceRef.current;
+      const markerLayer = markerLayerRef.current;
+      if (cancelled || !map || !markerLayer) return;
+      markerLayer.clearLayers();
+      if (!points.length) {
+        map.setView([20, 0], 2);
+        return;
+      }
+      const bounds = L.latLngBounds(points.map((point) => [point.lat, point.lng]));
+      points.forEach((point) => {
+        const color = point.status === "queued" ? "#d49b2e"
+          : point.status === "conflict" ? "#ce6b54"
+            : point.status === "current" ? "#ce6b54" : "#0b7669";
+        const marker = L.circleMarker([point.lat, point.lng], {
+          radius: point.status === "current" ? 8 : 7,
+          color: "#f4f8f5",
+          weight: 2,
+          fillColor: color,
+          fillOpacity: 1,
+        }).addTo(markerLayer);
+        if (point.status === "current") {
+          marker.bindPopup("Your current location");
+        } else {
+          marker.bindPopup(`<strong>${point.title || "Untitled report"}</strong><br>${point.category || "Issue"} · ${point.status || "queued"}`);
+        }
+      });
+      map.fitBounds(bounds, { padding: [18, 18], maxZoom: points.length === 1 ? 15 : 17 });
+      map.invalidateSize();
+    });
+    return () => { cancelled = true; };
+  }, [points]);
+
+  return (
+    <div className={`intro-phone-map${points.length ? "" : " is-empty"}`} aria-label={`${issues.length} local reports mapped`}>
+      <div ref={mapRef} className="intro-leaflet-map" />
+      {!points.length && <span className="intro-map-empty">No location data yet</span>}
+    </div>
+  );
+}
+
 export default function IntroPage({ onLaunch, githubUrl, theme, onToggleTheme }) {
   return (
     <div className="intro-page">
@@ -156,8 +260,8 @@ export default function IntroPage({ onLaunch, githubUrl, theme, onToggleTheme })
               <div className="intro-phone-sync">↻ 2 pending reports</div>
             </MiniPhone>
             <MiniPhone title="Signal map">
-              <div className="intro-phone-map"><i /><i /><i /><i /></div>
-              <div className="intro-map-legend"><span>● queued</span><span>● synced</span></div>
+              <SignalMap />
+              <div className="intro-map-legend"><span><i className="is-queued" /> queued</span><span><i className="is-synced" /> synced</span></div>
             </MiniPhone>
           </div>
         </section>
@@ -177,6 +281,7 @@ export default function IntroPage({ onLaunch, githubUrl, theme, onToggleTheme })
       <footer className="intro-footer">
         <div><span className="intro-brand-mark">G</span><strong>GroundTruth</strong></div>
         <p>Built for the moments that matter.</p>
+        <p className="intro-copyright">© 2026 Devansh Mishra. All rights reserved.</p>
         <div className="intro-footer-actions">
           <a className="intro-footer-link" href={githubUrl} target="_blank" rel="noreferrer">View on GitHub <span>↗</span></a>
           <button className="intro-footer-link" onClick={onLaunch}>Open the reporter <span>↗</span></button>
@@ -185,3 +290,6 @@ export default function IntroPage({ onLaunch, githubUrl, theme, onToggleTheme })
     </div>
   );
 }
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "leaflet/dist/leaflet.css";
+import { listIssues } from "../lib/db";

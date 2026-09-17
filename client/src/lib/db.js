@@ -41,6 +41,7 @@ export async function saveIssueOffline(issue) {
     syncVersion: 1,
   };
   await db.issues.add(record);
+  window.dispatchEvent(new CustomEvent("groundtruth:issues-changed"));
   return record;
 }
 

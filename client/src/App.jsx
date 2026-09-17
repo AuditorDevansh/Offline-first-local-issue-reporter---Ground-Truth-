@@ -8,9 +8,20 @@ import "./App.css";
 
 const GITHUB_URL = "https://github.com/AuditorDevansh/Offline-first-local-issue-reporter---Ground-Truth-";
 
+const ROUTES = {
+  home: "#app",
+  capture: "#app/capture",
+  queue: "#app/queue",
+};
+
+function tabFromHash(hash) {
+  const route = Object.entries(ROUTES).find(([, path]) => path === hash);
+  return route?.[0] || "home";
+}
+
 export default function App() {
-  const [showIntro, setShowIntro] = useState(() => window.location.hash !== "#app");
-  const [tab, setTab] = useState("home");
+  const [showIntro, setShowIntro] = useState(() => !window.location.hash.startsWith("#app"));
+  const [tab, setTab] = useState(() => tabFromHash(window.location.hash));
   const [refreshKey, setRefreshKey] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
   const [theme, setTheme] = useState(() => {
@@ -22,6 +33,16 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("groundtruth-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const isAppRoute = window.location.hash.startsWith("#app");
+      setShowIntro(!isAppRoute);
+      if (isAppRoute) setTab(tabFromHash(window.location.hash));
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
   // Attempt a sync whenever we come back online, or every 30s as backstop.
   useEffect(() => {
@@ -38,13 +59,24 @@ export default function App() {
   }, []);
 
   function launchApp() {
-    window.history.replaceState(null, "", "#app");
+    window.location.hash = ROUTES.home;
     setShowIntro(false);
+    setTab("home");
   }
 
   function returnToIntro() {
-    window.history.replaceState(null, "", window.location.pathname);
+    window.history.pushState(null, "", window.location.pathname);
     setShowIntro(true);
+    setTab("home");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function navigate(nextTab) {
+    const nextRoute = ROUTES[nextTab];
+    if (!nextRoute || nextRoute === window.location.hash) return;
+    window.location.hash = nextRoute;
+    setShowIntro(false);
+    setTab(nextTab);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -86,18 +118,18 @@ export default function App() {
       </header>
 
       <nav className="tabs" style={{ "--active-tab": { home: 0, capture: 1, queue: 2 }[tab] }}>
-        <button className={tab === "home" ? "active" : ""} onClick={() => setTab("home")}>
+        <button className={tab === "home" ? "active" : ""} onClick={() => navigate("home")}>
           <span>⌂</span> Overview
         </button>
         <button
           className={tab === "capture" ? "active" : ""}
-          onClick={() => setTab("capture")}
+          onClick={() => navigate("capture")}
         >
           <span>✦</span> Capture
         </button>
         <button
           className={tab === "queue" ? "active" : ""}
-          onClick={() => setTab("queue")}
+          onClick={() => navigate("queue")}
         >
           <span>◴</span> Queue
         </button>
@@ -112,8 +144,8 @@ export default function App() {
               <h1>Make your<br /><em>mark locally.</em></h1>
               <p className="intro">Spot something that needs fixing? Capture it now, even without a signal. GroundTruth keeps your report safe on this device and sends it when you’re back online.</p>
               <div className="landing-actions">
-                <button className="primary-action" onClick={() => setTab("capture")}>Report an issue <span>→</span></button>
-                <button className="text-action" onClick={() => setTab("queue")}>View your activity <span>↗</span></button>
+                <button className="primary-action" onClick={() => navigate("capture")}>Report an issue <span>→</span></button>
+                <button className="text-action" onClick={() => navigate("queue")}>View your activity <span>↗</span></button>
               </div>
             </div>
             <div className="landing-card">
@@ -134,7 +166,7 @@ export default function App() {
           </>
         )}
       </main>
-      <footer className="app-footer"><span>GroundTruth</span> · Built for the moments that matter.</footer>
+      <footer className="app-footer"><span>GroundTruth</span> · Built for the moments that matter. <span>© 2026 Devansh Mishra</span></footer>
     </div>
   );
 }

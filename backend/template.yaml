@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  GroundTruth — offline-first local issue reporter.
+  API Gateway + Lambda backend for the sync batch endpoint and issue queries.
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 10
+    MemorySize: 256
+    Environment:
+      Variables:
+        DATABASE_URL: !Ref DatabaseUrl
+        PHOTOS_BUCKET: !Ref PhotosBucket
+
+Parameters:
+  DatabaseUrl:
+    Type: String
+    Description: Connection string for the RDS PostgreSQL + PostGIS instance
+    NoEcho: true
+    Default: ""
+
+Resources:
+  GroundTruthApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Cors:
+        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
+        AllowHeaders: "'Content-Type'"
+        AllowOrigin: "'*'"
+
+  PhotosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub groundtruth-photos-${AWS::AccountId}
+
+  SyncBatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/syncBatch.handler
+      CodeUri: .
+      Events:
+        SyncBatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /sync/batch
+            Method: post
+
+  NearbyIssuesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/nearbyIssues.handler
+      CodeUri: .
+      Events:
+        NearbyIssues:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /issues/nearby
+            Method: get
+
+  IssueDetailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/issueDetail.handler
+      CodeUri: .
+      Events:
+        GetIssue:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /issues/{id}
+            Method: get
+        UpdateIssue:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /issues/{id}
+            Method: patch
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/health.handler
+      CodeUri: .
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /healthz
+            Method: get
+
+Outputs:
+  ApiUrl:
+    Description: Invoke URL for the dev stage
+    Value: !Sub "https://${GroundTruthApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"
+  PhotosBucketName:
+    Value: !Ref PhotosBucket

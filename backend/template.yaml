@@ -2,17 +2,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   GroundTruth — offline-first local issue reporter.
-  API Gateway + Lambda backend for the sync batch endpoint and issue queries.
-
-Globals:
-  Function:
-    Runtime: nodejs20.x
-    Timeout: 10
-    MemorySize: 256
-    Environment:
-      Variables:
-        DATABASE_URL: !Ref DatabaseUrl
-        PHOTOS_BUCKET: !Ref PhotosBucket
+  Flask app packaged as a container image, deployed to Lambda behind
+  API Gateway via the AWS Lambda Web Adapter. Same app.py runs locally
+  with `flask --app app run` and on Lambda, unchanged.
 
 Parameters:
   DatabaseUrl:
@@ -36,63 +28,34 @@ Resources:
     Properties:
       BucketName: !Sub groundtruth-photos-${AWS::AccountId}
 
-  SyncBatchFunction:
+  ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: src/handlers/syncBatch.handler
-      CodeUri: .
+      PackageType: Image
+      MemorySize: 512
+      Timeout: 15
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          PHOTOS_BUCKET: !Ref PhotosBucket
+          PORT: "8000"
       Events:
-        SyncBatch:
+        RootApi:
           Type: Api
           Properties:
             RestApiId: !Ref GroundTruthApi
-            Path: /sync/batch
-            Method: post
-
-  NearbyIssuesFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/nearbyIssues.handler
-      CodeUri: .
-      Events:
-        NearbyIssues:
+            Path: /
+            Method: ANY
+        ProxyApi:
           Type: Api
           Properties:
             RestApiId: !Ref GroundTruthApi
-            Path: /issues/nearby
-            Method: get
-
-  IssueDetailFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/issueDetail.handler
-      CodeUri: .
-      Events:
-        GetIssue:
-          Type: Api
-          Properties:
-            RestApiId: !Ref GroundTruthApi
-            Path: /issues/{id}
-            Method: get
-        UpdateIssue:
-          Type: Api
-          Properties:
-            RestApiId: !Ref GroundTruthApi
-            Path: /issues/{id}
-            Method: patch
-
-  HealthFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/health.handler
-      CodeUri: .
-      Events:
-        Health:
-          Type: Api
-          Properties:
-            RestApiId: !Ref GroundTruthApi
-            Path: /healthz
-            Method: get
+            Path: /{proxy+}
+            Method: ANY
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: latest
 
 Outputs:
   ApiUrl:

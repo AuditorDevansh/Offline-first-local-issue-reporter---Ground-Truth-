@@ -12,7 +12,8 @@ Builders.
 
 ```
 client/    React + Vite PWA — capture, queue, and map screens
-backend/   AWS SAM app — API Gateway + Lambda, deploys to AWS
+backend/   Flask app, deployed to AWS Lambda (container image) behind
+           API Gateway via the AWS Lambda Web Adapter
 ```
 
 ## Local development
@@ -25,19 +26,25 @@ npm install
 npm run dev
 ```
 
-**Backend** (no AWS account required — runs entirely local)
+**Backend** — the same `app.py` runs two ways, unchanged:
 
 ```bash
 cd backend
-npm install
+pip install -r requirements-dev.txt
+
+# Option A: plain Flask, no Docker/SAM needed for day-to-day route work
+flask --app app run --port 8000
+
+# Option B: through SAM + Docker, exactly as it runs on Lambda
 sam build
 sam local start-api
 ```
 
 ## Deploying
 
-**Backend** → `sam deploy --guided` (Lambda + API Gateway, RDS connection via
-the `DatabaseUrl` parameter)
+**Backend** → `sam deploy --guided` builds the Docker image, pushes it to
+ECR, and deploys the Lambda + API Gateway (RDS connection via the
+`DatabaseUrl` parameter). Requires Docker running locally.
 
 **Client** → connect the repo to AWS Amplify Hosting for git-triggered
 deploys.

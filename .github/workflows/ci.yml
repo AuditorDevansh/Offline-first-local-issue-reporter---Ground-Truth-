@@ -32,10 +32,13 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 20
-      - run: npm install
-      - run: npm test
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
       - uses: aws-actions/setup-sam@v2
+      # sam build here builds the container image (Docker is preinstalled
+      # on ubuntu-latest runners), validating the Dockerfile + template
+      # without needing real AWS credentials.
       - run: sam build

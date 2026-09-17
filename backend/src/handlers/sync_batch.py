@@ -9,6 +9,7 @@ PostGIS), keyed on `id`, that also compares `sync_version` to resolve
 conflicts.
 """
 import json
+from src.store import upsert_issue
 
 
 def handler(event, context):
@@ -21,7 +22,11 @@ def handler(event, context):
         return _error(400, "Expected an array of issues")
 
     results = [
-        {"id": issue.get("id"), "status": "synced" if issue.get("id") else "rejected"}
+        upsert_issue(issue) or (
+            {"id": issue.get("id"), "status": "synced"}
+            if issue.get("id") and not issue.get("title")
+            else {"id": issue.get("id"), "status": "rejected"}
+        )
         for issue in issues
     ]
 

@@ -31,14 +31,23 @@ npm run dev
 cd backend
 pip install -r requirements.txt pytest
 pytest                    # run the handler tests directly
-sam build
+uvicorn app:api --reload  # FastAPI on http://localhost:8000
+sam build --use-container  # requires Docker; avoids local Python runtime mismatch
 sam local start-api       # exercises the real API Gateway + Lambda path
 ```
 
+The local API also exposes the same routes through Flask at `/flask/*`. Both
+frameworks share the SQLite store (`groundtruth.db` by default), so captures
+made through the offline client and requests made through either API remain
+consistent. Set `GROUNDTRUTH_DB` to use a different database path.
+
 ## Deploying
 
-**Backend** → `sam deploy --guided` (Lambda + API Gateway, RDS connection via
-the `DatabaseUrl` parameter)
+**Backend** → `sam deploy --guided` (Lambda + API Gateway). The deployment
+requires private subnet IDs, security group IDs, and a reachable
+PostgreSQL/PostGIS connection string through the `DatabaseUrl` parameter. The
+application uses SQLite only when `DATABASE_URL` is empty, for local
+development. Lambda and the database must be in compatible VPC networking.
 
 **Client** → connect the repo to AWS Amplify Hosting for git-triggered
 deploys.

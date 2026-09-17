@@ -7,6 +7,7 @@ TODO: replace with a real PostGIS query, e.g.
   WHERE ST_DWithin(location, ST_MakePoint(%(lng)s, %(lat)s)::geography, %(radius)s)
 """
 import json
+from src.store import nearby_issues
 
 
 def handler(event, context):
@@ -16,20 +17,27 @@ def handler(event, context):
     radius = params.get("radius", 1000)
 
     if lat is None or lng is None:
-        return {
-            "statusCode": 400,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "lat and lng query parameters are required"}),
-        }
+        return _error(400, "lat and lng query parameters are required")
+
+    try:
+        latitude, longitude, distance = float(lat), float(lng), float(radius)
+        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180 or distance <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return _error(400, "lat, lng, and radius must be valid positive coordinates")
 
     return {
         "statusCode": 200,
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps(
             {
-                "center": {"lat": float(lat), "lng": float(lng)},
-                "radius": float(radius),
-                "issues": [],
+                "center": {"lat": latitude, "lng": longitude},
+                "radius": distance,
+                "issues": nearby_issues(latitude, longitude, distance),
             }
         ),
     }
+
+
+def _error(status, message):
+    return {"statusCode": status, "headers": {"Content-Type": "application/json"}, "body": json.dumps({"error": message})}

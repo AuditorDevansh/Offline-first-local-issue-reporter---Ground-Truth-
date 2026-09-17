@@ -4,7 +4,7 @@
 // push after a dropped connection never creates duplicates server-side.
 import { queuedIssues, markSynced, markConflict } from "./db";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 let syncing = false;
 

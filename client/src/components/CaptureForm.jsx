@@ -1,5 +1,5 @@
 // src/components/CaptureForm.jsx
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { saveIssueOffline } from "../lib/db";
 
 const CATEGORIES = ["pothole", "lighting", "sanitation", "signage", "other"];
@@ -16,7 +16,7 @@ export default function CaptureForm({ onSaved }) {
 
   // Grab GPS as soon as the form mounts — don't make the user wait on it
   // to submit; if it's not ready yet we just save without coordinates.
-  useState(() => {
+  useEffect(() => {
     if (!navigator.geolocation) return;
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
@@ -27,7 +27,7 @@ export default function CaptureForm({ onSaved }) {
       () => setLocating(false),
       { timeout: 8000 }
     );
-  });
+  }, []);
 
   function handlePhotoChange(e) {
     const file = e.target.files?.[0];
@@ -63,13 +63,20 @@ export default function CaptureForm({ onSaved }) {
 
   return (
     <form onSubmit={handleSubmit} className="capture-form">
-      <h2>New report</h2>
+      <div className="section-heading">
+        <div>
+          <p className="kicker">MAKE YOUR MARK</p>
+          <h1>Spot something?<br /><em>Say something.</em></h1>
+        </div>
+        <span className="step-count">01<span>/03</span></span>
+      </div>
+      <p className="intro">Your report is saved safely on this device first. It will reach the right people when you’re back online.</p>
 
       <label className="photo-field">
         {photoRef ? (
           <img src={photoRef} alt="Captured issue" />
         ) : (
-          <span>Tap to capture photo</span>
+          <span><strong>+</strong> Add a photo <small>Optional, but helpful</small></span>
         )}
         <input
           ref={fileInputRef}
@@ -83,12 +90,13 @@ export default function CaptureForm({ onSaved }) {
 
       <input
         type="text"
-        placeholder="Title, e.g. Pothole on Elm St"
+        placeholder="Give it a clear title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         required
       />
 
+      <label className="field-label">WHAT'S GOING ON?
       <select value={category} onChange={(e) => setCategory(e.target.value)}>
         {CATEGORIES.map((c) => (
           <option key={c} value={c}>
@@ -96,9 +104,10 @@ export default function CaptureForm({ onSaved }) {
           </option>
         ))}
       </select>
+      </label>
 
       <textarea
-        placeholder="Describe what you saw"
+        placeholder="Add a few details — what, where, and when?"
         rows={3}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
@@ -112,7 +121,13 @@ export default function CaptureForm({ onSaved }) {
           : "📍 Location unavailable — saving without it"}
       </p>
 
-      <button type="submit">{saved ? "Saved ✓" : "Save offline"}</button>
+      <div className="form-footer">
+        <p className="location-status">
+          <span className={location ? "location-dot active" : "location-dot"}>⌖</span>
+          {locating ? "Finding your location…" : location ? "Location attached" : "Location unavailable"}
+        </p>
+        <button type="submit">{saved ? "Saved ✓" : "Save report"} <span>→</span></button>
+      </div>
     </form>
   );
 }

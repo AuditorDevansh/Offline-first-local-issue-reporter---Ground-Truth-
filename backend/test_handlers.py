@@ -32,6 +32,13 @@ def test_nearby_requires_coordinates():
     assert res["statusCode"] == 400
 
 
+def test_nearby_accepts_coordinates():
+    event = {"queryStringParameters": {"lat": "12.9", "lng": "77.6", "radius": "1000"}}
+    res = nearby_issues.handler(event, None)
+    assert res["statusCode"] == 200
+    assert json.loads(res["body"])["center"] == {"lat": 12.9, "lng": 77.6}
+
+
 def test_issue_detail_get():
     event = {"pathParameters": {"id": "xyz"}, "httpMethod": "GET"}
     res = issue_detail.handler(event, None)

@@ -10,6 +10,9 @@ Globals:
     Runtime: python3.12
     Timeout: 10
     MemorySize: 256
+    VpcConfig:
+      SecurityGroupIds: !Ref VpcSecurityGroupIds
+      SubnetIds: !Ref VpcSubnetIds
     Environment:
       Variables:
         DATABASE_URL: !Ref DatabaseUrl
@@ -21,6 +24,12 @@ Parameters:
     Description: Connection string for the RDS PostgreSQL + PostGIS instance
     NoEcho: true
     Default: ""
+  VpcSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets that can reach the PostgreSQL database
+  VpcSecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: Security groups allowing Lambda to reach PostgreSQL
 
 Resources:
   GroundTruthApi:

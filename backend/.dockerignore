@@ -1,6 +1,0 @@
-.aws-sam/
-__pycache__/
-*.pyc
-.venv/
-test_app.py
-requirements-dev.txt

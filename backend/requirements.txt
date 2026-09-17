@@ -1,2 +1,2 @@
-flask==3.0.3
-gunicorn==22.0.0
+# No third-party dependencies yet — stubs use only the standard library.
+# Add psycopg2-binary (or similar) here once the handlers talk to RDS.

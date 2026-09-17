@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Vite / client build output
+client/dist/
+client/.vite/
+
+# AWS SAM
+backend/.aws-sam/
+backend/samconfig.toml
+backend/groundtruth.db
+backend/**/__pycache__/
+
+# Env
+.env
+.env.local
+*.env
+
+# OS
+.DS_Store

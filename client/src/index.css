@@ -1,0 +1,4 @@
+:root { --ink: #1b2a33; --muted: #68736f; --line: #d8d2c3; --line-strong: #b7ae99; --accent: #256b5b; --accent-soft: #dce9e3; --amber: #b6741a; --green: #4d9b6a; --paper: #f4f1e8; --paper-raised: #fbf9f2; --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace; font-family: 'IBM Plex Sans', Inter, ui-sans-serif, system-ui, sans-serif; color: var(--muted); background: var(--paper); font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+:root[data-theme="dark"] { --ink: #e9e4d6; --muted: #b3ad9b; --line: #3a3e35; --line-strong: #545a4c; --accent: #6fbfa8; --accent-soft: #1c332c; --amber: #e0a24c; --green: #78c18f; --paper: #171b16; --paper-raised: #1e231d; }
+body { margin: 0; min-width: 320px; background: var(--paper); }
+button, input, textarea, select { font-family: inherit; }

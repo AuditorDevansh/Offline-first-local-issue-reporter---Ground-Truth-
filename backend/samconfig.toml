@@ -1,0 +1,29 @@
+# samconfig.toml — non-interactive SAM deploy configuration.
+# Run:  sam build && sam deploy
+# All parameters can be overridden on the command line.
+
+version = 0.1
+
+[default.global.parameters]
+stack_name = "groundtruth"
+region     = "ap-south-1"     # Mumbai — change to your preferred region
+confirm_changeset = false
+fail_on_empty_changeset = false
+
+[default.build.parameters]
+use_container = false          # set true if you want Lambda-compatible builds
+
+[default.deploy.parameters]
+stack_name    = "groundtruth"
+region        = "ap-south-1"
+capabilities  = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+resolve_s3    = true           # SAM auto-creates a deployment S3 bucket
+image_repositories = []
+
+# Parameter overrides — edit AllowedOrigin after Amplify gives you the URL
+parameter_overrides = [
+  "AllowedOrigin=*",
+  "AppVersion=1.0.0",
+  "GithubRepo=https://github.com/AuditorDevansh/Offline-first-local-issue-reporter---Ground-Truth-",
+  "GithubBranch=main",
+]

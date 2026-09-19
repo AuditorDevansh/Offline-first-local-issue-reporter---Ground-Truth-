@@ -32,26 +32,26 @@ jobs:
       - name: Build (production)
         run: npm run build
         env:
-          # Use placeholder values so the build doesn't fail on missing vars.
-          # Real values are injected by Amplify at deploy time.
-          VITE_API_BASE_URL: https://example.execute-api.us-east-1.amazonaws.com/prod
+          VITE_API_BASE_URL: https://placeholder.execute-api.ap-south-1.amazonaws.com/prod
           VITE_ADMIN_API_KEY: ""
           VITE_PHOTOS_CDN: ""
 
-      - name: Verify build output
+      - name: Verify build artifacts
         run: |
-          test -f dist/index.html   || (echo "Missing dist/index.html"  && exit 1)
-          test -f dist/sw.js        || (echo "Missing dist/sw.js"        && exit 1)
+          test -f dist/index.html    || (echo "Missing dist/index.html"   && exit 1)
+          test -f dist/sw.js         || (echo "Missing dist/sw.js"        && exit 1)
           test -f dist/manifest.json || (echo "Missing dist/manifest.json" && exit 1)
-          echo "Build output OK"
+          echo "✓ Build artifacts present"
 
-  # ── Backend: test + SAM build ──────────────────────────────────────────────
+  # ── Backend: test + SAM validate ──────────────────────────────────────────
   backend:
-    name: Backend (test, sam build)
+    name: Backend (test, sam validate)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    env:
+      USE_DYNAMO: "false"    # use SQLite in CI — no AWS credentials needed
     steps:
       - uses: actions/checkout@v4
 
@@ -71,16 +71,19 @@ jobs:
           use-installer: true
 
       - name: SAM build (validates template + packages Lambdas)
-        run: sam build --use-container
-        # Note: --use-container builds inside a Lambda-compatible Docker image,
-        # matching the production environment.  Requires Docker on the runner.
-        # If Docker is unavailable in your runner, replace with: sam build
+        run: sam build
+        env:
+          # Fake credentials so SAM build doesn't fail on credential lookup
+          AWS_ACCESS_KEY_ID: fake
+          AWS_SECRET_ACCESS_KEY: fake
+          AWS_DEFAULT_REGION: ap-south-1
 
-  # ── Deploy: backend to AWS (main branch only) ──────────────────────────────
-  # Uncomment and configure secrets to enable automated deploys.
+  # ── Deploy backend (main branch, manual trigger) ───────────────────────────
+  # Uncomment once you have added the secrets below to your GitHub repo:
+  #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, DATABASE_URL
   #
   # deploy-backend:
-  #   name: Deploy backend (SAM)
+  #   name: Deploy backend to AWS
   #   needs: [client, backend]
   #   runs-on: ubuntu-latest
   #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -99,7 +102,7 @@ jobs:
   #       with:
   #         aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
   #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #         aws-region:            ${{ secrets.AWS_REGION }}
+  #         aws-region:            ${{ secrets.AWS_REGION || 'ap-south-1' }}
   #
   #     - uses: aws-actions/setup-sam@v2
   #       with:
@@ -108,13 +111,11 @@ jobs:
   #     - name: SAM build
   #       run: sam build
   #
-  #     - name: SAM deploy (no confirm changeset in CI)
+  #     - name: SAM deploy
   #       run: |
   #         sam deploy \
   #           --no-confirm-changeset \
   #           --no-fail-on-empty-changeset \
   #           --parameter-overrides \
-  #             DatabaseUrl="${{ secrets.DATABASE_URL }}" \
-  #             VpcSubnetIds="${{ secrets.VPC_SUBNET_IDS }}" \
-  #             VpcSecurityGroupIds="${{ secrets.VPC_SG_IDS }}" \
-  #             AllowedOrigin="${{ secrets.ALLOWED_ORIGIN }}"
+  #             "AllowedOrigin=${{ secrets.AMPLIFY_URL || '*' }}" \
+  #             "AppVersion=${{ github.sha }}"

@@ -1,87 +1,90 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  GroundTruth — offline-first local issue reporter.
-  Plain Python Lambda functions behind API Gateway — no framework, no
-  container image. One function per route, zip-packaged.
+  GroundTruth — fully serverless offline-first civic issue reporter.
+  DynamoDB + Lambda + API Gateway + S3. No VPC, no RDS.
 
 Globals:
   Function:
     Runtime: python3.12
-    Timeout: 10
+    Timeout: 15
     MemorySize: 256
     Architectures: [x86_64]
-    VpcConfig:
-      SecurityGroupIds: !Ref VpcSecurityGroupIds
-      SubnetIds: !Ref VpcSubnetIds
     Environment:
       Variables:
-        DATABASE_URL: !Ref DatabaseUrl
-        PHOTOS_BUCKET: !Ref PhotosBucket
+        ISSUES_TABLE:   !Ref IssuesTable
+        PHOTOS_BUCKET:  !Ref PhotosBucket
         ALLOWED_ORIGIN: !Ref AllowedOrigin
-        APP_VERSION: !Ref AppVersion
+        APP_VERSION:    !Ref AppVersion
+        USE_DYNAMO:     "true"
 
 Parameters:
-  DatabaseUrl:
-    Type: String
-    Description: PostgreSQL connection string (e.g. postgresql://user:pass@host:5432/groundtruth)
-    NoEcho: true
-    Default: ""
-
-  VpcSubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: Private subnets that can reach the PostgreSQL database
-
-  VpcSecurityGroupIds:
-    Type: List<AWS::EC2::SecurityGroup::Id>
-    Description: Security groups allowing Lambda to reach PostgreSQL on port 5432
-
   AllowedOrigin:
     Type: String
-    Description: >
-      CORS origin for admin endpoints, e.g. https://main.d1abc.amplifyapp.com
-      Use * only during development.
     Default: "*"
+    Description: >
+      CORS origin for the client app.
+      Set to your Amplify URL after first deploy,
+      e.g. https://main.d1abc123.amplifyapp.com
 
   AppVersion:
     Type: String
     Default: "1.0.0"
-    Description: Application version tag shown in /healthz
+
+  # Amplify parameters (filled in by deploy script)
+  GithubRepo:
+    Type: String
+    Default: "https://github.com/AuditorDevansh/Offline-first-local-issue-reporter---Ground-Truth-"
+    Description: GitHub repository URL for Amplify hosting
+
+  GithubBranch:
+    Type: String
+    Default: "main"
 
 Resources:
 
-  # ── API Gateway ──────────────────────────────────────────────────────────────
+  # ── DynamoDB ─────────────────────────────────────────────────────────────────
 
-  GroundTruthApi:
-    Type: AWS::Serverless::Api
+  IssuesTable:
+    Type: AWS::DynamoDB::Table
     Properties:
-      StageName: prod
-      TracingEnabled: true
-      MethodSettings:
-        - ResourcePath: "/*"
-          HttpMethod: "*"
-          ThrottlingRateLimit: 100
-          ThrottlingBurstLimit: 200
-          LoggingLevel: ERROR
-          DataTraceEnabled: false
-          MetricsEnabled: true
-      Cors:
-        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
-        AllowHeaders: "'Content-Type,X-Api-Key,Authorization'"
-        AllowOrigin: !Sub "'${AllowedOrigin}'"
-      Auth:
-        # Public routes have no auth.  Admin routes are protected by an API key.
-        # API keys are created in the console and associated with a usage plan.
-        ApiKeyRequired: false
-        UsagePlan:
-          CreateUsagePlan: PER_API
-          Description: GroundTruth admin usage plan
-          Quota:
-            Limit: 10000
-            Period: DAY
-          Throttle:
-            RateLimit: 50
-            BurstLimit: 100
+      TableName: groundtruth-issues
+      BillingMode: PAY_PER_REQUEST        # fully serverless, no provisioning
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true  # 35-day PITR backup
+      SSESpecification:
+        SSEEnabled: true                  # encryption at rest
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: N
+        - AttributeName: category
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # Admin panel: filter by status, sorted newest first
+        - IndexName: StatusCreatedAtIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # Admin panel: filter by category, sorted newest first
+        - IndexName: CategoryCreatedAtIndex
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   # ── S3 photo storage ─────────────────────────────────────────────────────────
 
@@ -107,11 +110,12 @@ Resources:
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
 
-  # ── IAM role for photo-related Lambdas ────────────────────────────────────────
+  # ── IAM role for Lambda functions ────────────────────────────────────────────
 
-  PhotoLambdaRole:
+  LambdaRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: groundtruth-lambda-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -119,29 +123,70 @@ Resources:
             Principal: {Service: lambda.amazonaws.com}
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: S3PhotoAccess
+        - PolicyName: GroundTruthDynamoS3
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt IssuesTable.Arn
+                  - !Sub "${IssuesTable.Arn}/index/*"
+              - Effect: Allow
+                Action:
                   - s3:PutObject
                   - s3:GetObject
-                  - s3:DeleteObject
                 Resource: !Sub "arn:aws:s3:::groundtruth-photos-${AWS::AccountId}-${AWS::Region}/photos/*"
               - Effect: Allow
                 Action: s3:ListBucket
                 Resource: !Sub "arn:aws:s3:::groundtruth-photos-${AWS::AccountId}-${AWS::Region}"
+
+  # ── API Gateway ───────────────────────────────────────────────────────────────
+
+  GroundTruthApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      TracingEnabled: true
+      Cors:
+        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Api-Key,Authorization'"
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 200
+          ThrottlingBurstLimit: 400
+          MetricsEnabled: true
+      Auth:
+        ApiKeyRequired: false
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          Description: GroundTruth admin usage plan
+          Quota:
+            Limit: 50000
+            Period: DAY
+          Throttle:
+            RateLimit: 100
+            BurstLimit: 200
 
   # ── Lambda Functions ──────────────────────────────────────────────────────────
 
   HealthFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: groundtruth-health
       Handler: src/handlers/health.handler
       CodeUri: .
+      Role: !GetAtt LambdaRole.Arn
       Description: Liveness probe
       Events:
         Health:
@@ -154,8 +199,10 @@ Resources:
   SyncBatchFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: groundtruth-sync-batch
       Handler: src/handlers/sync_batch.handler
       CodeUri: .
+      Role: !GetAtt LambdaRole.Arn
       Description: Receives the offline outbox from the client PWA
       Events:
         SyncBatch:
@@ -168,9 +215,11 @@ Resources:
   NearbyIssuesFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: groundtruth-nearby
       Handler: src/handlers/nearby_issues.handler
       CodeUri: .
-      Description: Geo-radius query for the client map view
+      Role: !GetAtt LambdaRole.Arn
+      Description: Geo-radius query for the map view
       Events:
         NearbyIssues:
           Type: Api
@@ -182,9 +231,11 @@ Resources:
   IssueDetailFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: groundtruth-issue-detail
       Handler: src/handlers/issue_detail.handler
       CodeUri: .
-      Description: Single issue GET/PATCH
+      Role: !GetAtt LambdaRole.Arn
+      Description: Single issue GET / PATCH
       Events:
         GetIssue:
           Type: Api
@@ -204,9 +255,10 @@ Resources:
   PhotoUploadFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: groundtruth-photo-upload
       Handler: src/handlers/photo_upload.handler
       CodeUri: .
-      Role: !GetAtt PhotoLambdaRole.Arn
+      Role: !GetAtt LambdaRole.Arn
       Description: Generate presigned S3 URL for photo uploads
       Events:
         PhotoUpload:
@@ -219,9 +271,10 @@ Resources:
   AdminIssuesFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: groundtruth-admin
       Handler: src/handlers/admin_issues.handler
       CodeUri: .
-      Role: !GetAtt PhotoLambdaRole.Arn
+      Role: !GetAtt LambdaRole.Arn
       Description: Admin panel — list issues, stats, bulk update
       Events:
         AdminListIssues:
@@ -263,7 +316,6 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: GroundTruth-SyncBatch-Errors
-      AlarmDescription: Alert when sync batch Lambda error rate is high
       MetricName: Errors
       Namespace: AWS/Lambda
       Dimensions:
@@ -276,16 +328,15 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
-  ApiGateway5xxAlarm:
+  Api5xxAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: GroundTruth-API-5xx-Errors
-      AlarmDescription: Alert when API Gateway returns 5xx errors
+      AlarmName: GroundTruth-API-5xx
       MetricName: 5XXError
       Namespace: AWS/ApiGateway
       Dimensions:
         - Name: ApiName
-          Value: GroundTruth-API
+          Value: groundtruth-api
         - Name: Stage
           Value: prod
       Statistic: Sum
@@ -295,12 +346,21 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
+# ── Outputs ───────────────────────────────────────────────────────────────────
+
 Outputs:
   ApiUrl:
-    Description: Base URL for all API calls (set as VITE_API_BASE_URL in Amplify)
+    Description: >
+      API Gateway base URL — set this as VITE_API_BASE_URL in Amplify
     Value: !Sub "https://${GroundTruthApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
     Export:
       Name: GroundTruthApiUrl
+
+  IssuesTableName:
+    Description: DynamoDB table name
+    Value: !Ref IssuesTable
+    Export:
+      Name: GroundTruthIssuesTable
 
   PhotosBucketName:
     Description: S3 bucket for issue photos
@@ -308,8 +368,9 @@ Outputs:
     Export:
       Name: GroundTruthPhotosBucket
 
-  AdminApiKeyInstructions:
+  AdminApiKeyNote:
     Description: >
-      After deploying, create an API key in the console and associate it with
-      the GroundTruth usage plan.  Set VITE_ADMIN_API_KEY in Amplify env vars.
+      After deploy: create an API key in API Gateway console,
+      associate it with the GroundTruth usage plan.
+      Then set VITE_ADMIN_API_KEY in Amplify environment variables.
     Value: "See AWS Console > API Gateway > API Keys"

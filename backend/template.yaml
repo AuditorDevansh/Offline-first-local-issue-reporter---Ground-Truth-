@@ -10,6 +10,7 @@ Globals:
     Runtime: python3.12
     Timeout: 10
     MemorySize: 256
+    Architectures: [x86_64]
     VpcConfig:
       SecurityGroupIds: !Ref VpcSecurityGroupIds
       SubnetIds: !Ref VpcSubnetIds
@@ -17,40 +18,145 @@ Globals:
       Variables:
         DATABASE_URL: !Ref DatabaseUrl
         PHOTOS_BUCKET: !Ref PhotosBucket
+        ALLOWED_ORIGIN: !Ref AllowedOrigin
+        APP_VERSION: !Ref AppVersion
 
 Parameters:
   DatabaseUrl:
     Type: String
-    Description: Connection string for the RDS PostgreSQL + PostGIS instance
+    Description: PostgreSQL connection string (e.g. postgresql://user:pass@host:5432/groundtruth)
     NoEcho: true
     Default: ""
+
   VpcSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: Private subnets that can reach the PostgreSQL database
+
   VpcSecurityGroupIds:
     Type: List<AWS::EC2::SecurityGroup::Id>
-    Description: Security groups allowing Lambda to reach PostgreSQL
+    Description: Security groups allowing Lambda to reach PostgreSQL on port 5432
+
+  AllowedOrigin:
+    Type: String
+    Description: >
+      CORS origin for admin endpoints, e.g. https://main.d1abc.amplifyapp.com
+      Use * only during development.
+    Default: "*"
+
+  AppVersion:
+    Type: String
+    Default: "1.0.0"
+    Description: Application version tag shown in /healthz
 
 Resources:
+
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+
   GroundTruthApi:
     Type: AWS::Serverless::Api
     Properties:
-      StageName: dev
+      StageName: prod
+      TracingEnabled: true
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 100
+          ThrottlingBurstLimit: 200
+          LoggingLevel: ERROR
+          DataTraceEnabled: false
+          MetricsEnabled: true
       Cors:
         AllowMethods: "'GET,POST,PATCH,OPTIONS'"
-        AllowHeaders: "'Content-Type'"
-        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,X-Api-Key,Authorization'"
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
+      Auth:
+        # Public routes have no auth.  Admin routes are protected by an API key.
+        # API keys are created in the console and associated with a usage plan.
+        ApiKeyRequired: false
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          Description: GroundTruth admin usage plan
+          Quota:
+            Limit: 10000
+            Period: DAY
+          Throttle:
+            RateLimit: 50
+            BurstLimit: 100
+
+  # ── S3 photo storage ─────────────────────────────────────────────────────────
 
   PhotosBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub groundtruth-photos-${AWS::AccountId}
+      BucketName: !Sub "groundtruth-photos-${AWS::AccountId}-${AWS::Region}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [PUT, GET]
+            AllowedOrigins: ["*"]
+            MaxAge: 3000
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  # ── IAM role for photo-related Lambdas ────────────────────────────────────────
+
+  PhotoLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: S3PhotoAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::groundtruth-photos-${AWS::AccountId}-${AWS::Region}/photos/*"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::groundtruth-photos-${AWS::AccountId}-${AWS::Region}"
+
+  # ── Lambda Functions ──────────────────────────────────────────────────────────
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/health.handler
+      CodeUri: .
+      Description: Liveness probe
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /healthz
+            Method: get
 
   SyncBatchFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler: src/handlers/sync_batch.handler
       CodeUri: .
+      Description: Receives the offline outbox from the client PWA
       Events:
         SyncBatch:
           Type: Api
@@ -64,6 +170,7 @@ Resources:
     Properties:
       Handler: src/handlers/nearby_issues.handler
       CodeUri: .
+      Description: Geo-radius query for the client map view
       Events:
         NearbyIssues:
           Type: Api
@@ -77,6 +184,7 @@ Resources:
     Properties:
       Handler: src/handlers/issue_detail.handler
       CodeUri: .
+      Description: Single issue GET/PATCH
       Events:
         GetIssue:
           Type: Api
@@ -90,23 +198,118 @@ Resources:
             RestApiId: !Ref GroundTruthApi
             Path: /issues/{id}
             Method: patch
+            Auth:
+              ApiKeyRequired: true
 
-  HealthFunction:
+  PhotoUploadFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: src/handlers/health.handler
+      Handler: src/handlers/photo_upload.handler
       CodeUri: .
+      Role: !GetAtt PhotoLambdaRole.Arn
+      Description: Generate presigned S3 URL for photo uploads
       Events:
-        Health:
+        PhotoUpload:
           Type: Api
           Properties:
             RestApiId: !Ref GroundTruthApi
-            Path: /healthz
+            Path: /issues/{id}/photo
+            Method: post
+
+  AdminIssuesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/admin_issues.handler
+      CodeUri: .
+      Role: !GetAtt PhotoLambdaRole.Arn
+      Description: Admin panel — list issues, stats, bulk update
+      Events:
+        AdminListIssues:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /admin/issues
             Method: get
+            Auth:
+              ApiKeyRequired: true
+        AdminStats:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /admin/stats
+            Method: get
+            Auth:
+              ApiKeyRequired: true
+        AdminBulkUpdate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /admin/issues/bulk
+            Method: post
+            Auth:
+              ApiKeyRequired: true
+        AdminPhotoUpload:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GroundTruthApi
+            Path: /admin/issues/{id}/photo-upload
+            Method: get
+            Auth:
+              ApiKeyRequired: true
+
+  # ── CloudWatch Alarms ─────────────────────────────────────────────────────────
+
+  SyncBatchErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: GroundTruth-SyncBatch-Errors
+      AlarmDescription: Alert when sync batch Lambda error rate is high
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SyncBatchFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  ApiGateway5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: GroundTruth-API-5xx-Errors
+      AlarmDescription: Alert when API Gateway returns 5xx errors
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Dimensions:
+        - Name: ApiName
+          Value: GroundTruth-API
+        - Name: Stage
+          Value: prod
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
 
 Outputs:
   ApiUrl:
-    Description: Invoke URL for the dev stage
-    Value: !Sub "https://${GroundTruthApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"
+    Description: Base URL for all API calls (set as VITE_API_BASE_URL in Amplify)
+    Value: !Sub "https://${GroundTruthApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+    Export:
+      Name: GroundTruthApiUrl
+
   PhotosBucketName:
+    Description: S3 bucket for issue photos
     Value: !Ref PhotosBucket
+    Export:
+      Name: GroundTruthPhotosBucket
+
+  AdminApiKeyInstructions:
+    Description: >
+      After deploying, create an API key in the console and associate it with
+      the GroundTruth usage plan.  Set VITE_ADMIN_API_KEY in Amplify env vars.
+    Value: "See AWS Console > API Gateway > API Keys"

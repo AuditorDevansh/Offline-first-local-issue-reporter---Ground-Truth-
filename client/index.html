@@ -3,12 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="GroundTruth is an offline-first civic issue reporter." />
+    <meta name="description" content="GroundTruth — offline-first civic issue reporter. Capture potholes, broken lights, and everything that needs fixing, even without a connection." />
+    <meta name="theme-color" content="#256b5b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="GroundTruth" />
+    <!-- Open Graph -->
+    <meta property="og:title" content="GroundTruth — report it before you lose signal" />
+    <meta property="og:description" content="Offline-first civic issue reporter. Capture issues instantly on-device, no connection required." />
+    <meta property="og:type" content="website" />
     <title>GroundTruth — report it before you lose signal</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Register service worker for offline support + installability.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {
+            // SW registration failures are non-fatal — the app still works.
+          });
+          // Listen for TRIGGER_SYNC messages from the service worker.
+          navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data?.type === 'TRIGGER_SYNC') {
+              window.dispatchEvent(new CustomEvent('groundtruth:sw-sync'));
+            }
+          });
+        });
+      }
+    </script>
   </body>
 </html>

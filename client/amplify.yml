@@ -1,0 +1,30 @@
+version: 1
+# ── AWS Amplify Hosting build spec for GroundTruth client ────────────────────
+# Set these environment variables in the Amplify console:
+#   VITE_API_BASE_URL   — API Gateway invoke URL (from sam deploy output)
+#   VITE_ADMIN_API_KEY  — API Gateway API key (leave blank to prompt at login)
+#   VITE_PHOTOS_CDN     — CloudFront hostname for photos (optional)
+
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - cd client
+        - npm ci --prefer-offline
+    build:
+      commands:
+        - npm run build
+    postBuild:
+      commands:
+        # Verify the build produced output before deploying.
+        - test -f dist/index.html || (echo "Build output missing" && exit 1)
+        # Copy the service worker and manifest to dist root (Vite does this
+        # automatically from /public, but we verify explicitly).
+        - ls dist/sw.js dist/manifest.json
+  artifacts:
+    baseDirectory: client/dist
+    files:
+      - "**/*"
+  cache:
+    paths:
+      - client/node_modules/**/*

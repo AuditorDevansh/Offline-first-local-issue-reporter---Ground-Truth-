@@ -1,4 +1,68 @@
-:root { --ink: #1b2a33; --muted: #68736f; --line: #d8d2c3; --line-strong: #b7ae99; --accent: #256b5b; --accent-soft: #dce9e3; --amber: #b6741a; --green: #4d9b6a; --paper: #f4f1e8; --paper-raised: #fbf9f2; --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace; font-family: 'IBM Plex Sans', Inter, ui-sans-serif, system-ui, sans-serif; color: var(--muted); background: var(--paper); font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
-:root[data-theme="dark"] { --ink: #e9e4d6; --muted: #b3ad9b; --line: #3a3e35; --line-strong: #545a4c; --accent: #6fbfa8; --accent-soft: #1c332c; --amber: #e0a24c; --green: #78c18f; --paper: #171b16; --paper-raised: #1e231d; }
-body { margin: 0; min-width: 320px; background: var(--paper); }
-button, input, textarea, select { font-family: inherit; }
+/* ── Google Fonts ───────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700;800&display=swap');
+
+/* ── Design tokens — light mode (default) ──────────────────────────────────── */
+:root {
+  /* Colour */
+  --ink:           #1b2a33;
+  --muted:         #68736f;
+  --line:          #d8d2c3;
+  --line-strong:   #b7ae99;
+  --accent:        #256b5b;
+  --accent-soft:   #dce9e3;
+  --amber:         #b6741a;
+  --green:         #4d9b6a;
+  --paper:         #f4f1e8;
+  --paper-raised:  #fbf9f2;
+  --shadow-sm:     0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.04);
+
+  /* Typography */
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  --sans: 'IBM Plex Sans', Inter, ui-sans-serif, system-ui, sans-serif;
+
+  font-family: var(--sans);
+  color: var(--muted);
+  background: var(--paper);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Dark mode overrides ────────────────────────────────────────────────────── */
+:root[data-theme="dark"] {
+  --ink:           #e9e4d6;
+  --muted:         #b3ad9b;
+  --line:          #3a3e35;
+  --line-strong:   #545a4c;
+  --accent:        #6fbfa8;
+  --accent-soft:   #1c332c;
+  --amber:         #e0a24c;
+  --green:         #78c18f;
+  --paper:         #171b16;
+  --paper-raised:  #1e231d;
+  --shadow-sm:     0 1px 3px rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.15);
+}
+
+/* ── Base reset ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* Inherit font in all form controls */
+button, input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Smooth scrolling unless the user prefers reduced motion */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}

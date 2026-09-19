@@ -5,17 +5,17 @@ import { saveIssueOffline } from "../lib/db";
 const CATEGORIES = ["pothole", "lighting", "sanitation", "signage", "other"];
 
 export default function CaptureForm({ onSaved }) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [title, setTitle]           = useState("");
+  const [category, setCategory]     = useState(CATEGORIES[0]);
   const [description, setDescription] = useState("");
-  const [photoRef, setPhotoRef] = useState(null);
-  const [location, setLocation] = useState(null);
-  const [locating, setLocating] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [photoBlob, setPhotoBlob]   = useState(null);   // stored in IndexedDB
+  const [photoPreview, setPhotoPreview] = useState(null); // ephemeral object URL
+  const [location, setLocation]     = useState(null);
+  const [locating, setLocating]     = useState(false);
+  const [saved, setSaved]           = useState(false);
   const fileInputRef = useRef(null);
 
-  // Grab GPS as soon as the form mounts — don't make the user wait on it
-  // to submit; if it's not ready yet we just save without coordinates.
+  // Grab GPS as soon as the form mounts.
   useEffect(() => {
     if (!navigator.geolocation) return;
     setLocating(true);
@@ -29,13 +29,27 @@ export default function CaptureForm({ onSaved }) {
     );
   }, []);
 
+  // Clean up object URLs when the component unmounts or photo changes.
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
+
   function handlePhotoChange(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Store as a local object URL reference for now — swap this for an
-    // IndexedDB blob store (or Dexie's own blob support) before Phase 3,
-    // since object URLs don't survive a page reload.
-    setPhotoRef(URL.createObjectURL(file));
+    // Revoke the previous preview URL to avoid memory leaks.
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoBlob(file);                          // store the actual File/Blob
+    setPhotoPreview(URL.createObjectURL(file));  // only for preview display
+  }
+
+  function clearPhoto() {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoBlob(null);
+    setPhotoPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function handleSubmit(e) {
@@ -43,21 +57,19 @@ export default function CaptureForm({ onSaved }) {
     if (!title.trim()) return;
 
     await saveIssueOffline({
-      title: title.trim(),
+      title:       title.trim(),
       category,
       description: description.trim(),
-      lat: location?.lat,
-      lng: location?.lng,
-      photoRef,
+      lat:         location?.lat,
+      lng:         location?.lng,
+      photoBlob,   // saved as a Blob in IndexedDB — survives page reload
     });
 
     setSaved(true);
     setTitle("");
     setDescription("");
-    setPhotoRef(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    clearPhoto();
     onSaved?.();
-
     setTimeout(() => setSaved(false), 2000);
   }
 
@@ -70,13 +82,29 @@ export default function CaptureForm({ onSaved }) {
         </div>
         <span className="step-count">01<span>/03</span></span>
       </div>
-      <p className="intro">Your report is saved safely on this device first. It will reach the right people when you’re back online.</p>
+      <p className="intro">
+        Your report is saved safely on this device first. It will reach the right
+        people when you're back online.
+      </p>
 
       <label className="photo-field">
-        {photoRef ? (
-          <img src={photoRef} alt="Captured issue" />
+        {photoPreview ? (
+          <>
+            <img src={photoPreview} alt="Captured issue" />
+            <button
+              type="button"
+              className="photo-clear-btn"
+              onClick={(e) => { e.preventDefault(); clearPhoto(); }}
+              aria-label="Remove photo"
+            >
+              ✕
+            </button>
+          </>
         ) : (
-          <span><strong>+</strong> Add a photo <small>Optional, but helpful</small></span>
+          <span>
+            <strong>+</strong> Add a photo{" "}
+            <small>Optional, but helpful</small>
+          </span>
         )}
         <input
           ref={fileInputRef}
@@ -93,17 +121,17 @@ export default function CaptureForm({ onSaved }) {
         placeholder="Give it a clear title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
+        maxLength={160}
         required
       />
 
-      <label className="field-label">WHAT'S GOING ON?
-      <select value={category} onChange={(e) => setCategory(e.target.value)}>
-        {CATEGORIES.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </select>
+      <label className="field-label">
+        WHAT'S GOING ON?
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
       </label>
 
       <textarea
@@ -111,22 +139,21 @@ export default function CaptureForm({ onSaved }) {
         rows={3}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
+        maxLength={2000}
       />
-
-      <p className="location-status">
-        {locating
-          ? "Locating…"
-          : location
-          ? `📍 ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
-          : "📍 Location unavailable — saving without it"}
-      </p>
 
       <div className="form-footer">
         <p className="location-status">
           <span className={location ? "location-dot active" : "location-dot"}>⌖</span>
-          {locating ? "Finding your location…" : location ? "Location attached" : "Location unavailable"}
+          {locating
+            ? "Finding your location…"
+            : location
+            ? `📍 ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
+            : "Location unavailable — saving without it"}
         </p>
-        <button type="submit">{saved ? "Saved ✓" : "Save report"} <span>→</span></button>
+        <button type="submit">
+          {saved ? "Saved ✓" : "Save report"} <span>→</span>
+        </button>
       </div>
     </form>
   );

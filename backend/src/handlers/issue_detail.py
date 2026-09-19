@@ -1,47 +1,59 @@
-"""GET /issues/{id} — single issue detail, for the municipal dashboard.
-PATCH /issues/{id} — staff status update (e.g. acknowledged, resolved).
-
-TODO: replace both branches with real RDS reads/writes.
+"""GET /issues/{id}  — single issue detail.
+PATCH /issues/{id} — staff status update (acknowledged, in_progress, resolved, etc.).
 """
 import json
-from src.store import get_issue, update_issue
+from src.store import get_issue, update_issue, ALLOWED_STATUSES
 
 
 def handler(event, context):
     issue_id = (event.get("pathParameters") or {}).get("id")
     if not issue_id:
-        return {
-            "statusCode": 400,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Missing issue id"}),
-        }
+        return _error(400, "Missing issue id")
 
     if event.get("httpMethod") == "PATCH":
         try:
             body = json.loads(event.get("body") or "{}")
         except (TypeError, ValueError):
-            return {
-                "statusCode": 400,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps({"error": "Invalid JSON body"}),
-            }
-        if not get_issue(issue_id):
-            return {
-                "statusCode": 200,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps({"id": issue_id, **body, "updated": True}),
-            }
+            return _error(400, "Invalid JSON body")
+
+        issue = get_issue(issue_id)
+        if not issue:
+            return _error(404, "Issue not found")
+
+        # Validate status if provided
+        if "status" in body and body["status"] not in ALLOWED_STATUSES:
+            return _error(400, f"Invalid status. Allowed: {sorted(ALLOWED_STATUSES)}")
+
+        updated = update_issue(issue_id, body)
         return {
             "statusCode": 200,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({**update_issue(issue_id, body), "updated": True}),
+            "headers": _cors_headers(),
+            "body": json.dumps({**updated, "updated": True}),
         }
 
+    # GET
     issue = get_issue(issue_id)
-    if issue:
-        return {"statusCode": 200, "headers": {"Content-Type": "application/json"}, "body": json.dumps(issue)}
+    if not issue:
+        return _error(404, "Issue not found")
+
     return {
         "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({"id": issue_id, "status": "queued", "title": "Issue not synced yet"}),
+        "headers": _cors_headers(),
+        "body": json.dumps(issue),
+    }
+
+
+def _cors_headers():
+    return {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,X-Api-Key,Authorization",
+    }
+
+
+def _error(status, message):
+    return {
+        "statusCode": status,
+        "headers": _cors_headers(),
+        "body": json.dumps({"error": message}),
     }

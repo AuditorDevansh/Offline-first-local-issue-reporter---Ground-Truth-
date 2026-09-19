@@ -892,3 +892,48 @@ input[type="text"]:focus, select:focus, textarea:focus {
     border-radius: 14px;
   }
 }
+
+/* ── Admin access button (subtle, in footer) ─────────────────────────────── */
+.admin-access-btn {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: .75rem;
+  cursor: pointer;
+  margin-left: 12px;
+  opacity: .35;
+  transition: opacity .2s;
+  padding: 2px 4px;
+}
+.admin-access-btn:hover { opacity: 1; }
+
+/* ── Admin lazy-load fallback ────────────────────────────────────────────── */
+.adm-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100svh;
+  font-size: .82rem;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+/* ── Photo clear button ──────────────────────────────────────────────────── */
+.photo-field { position: relative; }
+.photo-clear-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  font-size: .72rem;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background .18s;
+}
+.photo-clear-btn:hover { background: rgba(0,0,0,.8); }
